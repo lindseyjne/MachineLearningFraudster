@@ -1,0 +1,206 @@
+---
+title: "Challenge: Catch the Fraudster"
+author: "Lindsey Erickson"
+date: "June 26, 2017"
+output: html_document
+---
+
+### Introduction
+
+Every retail chain faces a potential fraud instances where people order a product and then return it after some days claiming either the product doesn't work or doesn't provide desired utility. However, each such transaction has some precursors that may point towards a potential fraud instances.
+
+The goal of this project is to create a predictive model that will identify the fraud propensity for a retail company.
+<br>
+<br>
+
+### Comments
+
+This project will be submitted to the coursera data science challenge provided by Sunil Kappal.  This report is not meant to be used for actual fraud detection.
+<br>
+<br>
+
+### Import Data
+
+My first step is to load the necessary libraries and import the data from the website.  Once the data is loaded, I will need to coerce it to a data frame in order to prepare it for exploratory analysis.
+
+```{r, echo = TRUE, collapse = TRUE, warning = FALSE, message=FALSE}
+# load the necessary packages
+library(RCurl)
+library(gsheet)
+library(ggplot2)
+library("PerformanceAnalytics")
+library(rpart)
+library(rattle)
+
+# pull the data from the website and assign it to tempData
+url <- 'https://docs.google.com/spreadsheets/d/1TufF3QBHK8RsC06V0arvF3PwN3gfz5kg5eV6BjRxEjc/edit#gid=581816440'
+tempData <- gsheet2tbl(url)
+
+# coerce tempData to a data frame and assign it to fraudData
+fraudData <- as.data.frame(tempData)
+```
+<br>
+<br>
+
+### Clean Data
+
+I now have a data frame, and want to look at some basic properties.  If necessary, I will update any variables.
+
+```{r, echo = TRUE, collapse = TRUE, warning = FALSE, message = FALSE}
+# check the number of rows and columns (observations and variables)
+dim(fraudData)
+
+# check to see if there are any missing values
+sum(is.na(fraudData))
+
+# check the structure of the data frame
+str(fraudData)
+```
+<br>
+The data frame contains 4,349 observations and 13 variables, and does not contain any missing variables.  Looking at the structure of the data, I notice there are some changes that need to be made to some variables:
+
+  1. Some variables are classified as integers when they should be factors.  For example, the *Fraud Instance* variable is classified as an integer, as it contains 0's and 1's; however, the 0's stand for "not fraud" and the 1's stand for "fraud".  This means that the variable is not necessarily an integer, but a factor with two levels.  I need to change all the necessary variables to factors.  
+  2. I noticed a variable called *#* that numbers each observation in order from 1 to 4,349.  This variable is not providing any useful information; therefore, I will drop the variable.
+  3. The dollar sign in the *Claim Amount* variable is causing the variable to be classified as a character.  I will drop the dollar sign and coerce the variable to an integer.
+  
+<br>
+```{r, echo = TRUE, collapse = TRUE, warning = FALSE, message = FALSE}
+
+# changing the integer variables to factors
+fraudData$`Fraud Instance` <- as.factor(fraudData$`Fraud Instance`)
+fraudData$`Damaged Item` <- as.factor(fraudData$`Damaged Item`)
+fraudData$`Item Not Avaiable` <- as.factor(fraudData$`Item Not Avaiable`)
+fraudData$`Item Not In Stock` <- as.factor(fraudData$`Item Not In Stock`)
+fraudData$`Product Care Plan` <- as.factor(fraudData$`Product Care Plan`)
+fraudData$`Registered Online` <- as.factor(fraudData$`Registered Online`)
+fraudData$`Marital Status` <- as.factor(fraudData$`Marital Status`)
+fraudData$`Owns a Vehicle` <- as.factor(fraudData$`Owns a Vehicle`)
+fraudData$`Accomodation Type` <- as.factor(fraudData$`Accomodation Type`)
+
+# dropping the observation number variable, as it adds nothing to the dataset and dropping Height variable, as I have no idea what it is and cannot find any documentation on this variable.
+fraudData <- subset(fraudData, select = -`#`)
+fraudData <- subset(fraudData, select = -`Height (cms)`)
+
+# drop the dollar sign and change the variable to an integer
+fraudData$`Claim Amount` <- gsub("[$]","",fraudData$`Claim Amount`)
+fraudData$`Claim Amount` <- as.integer(fraudData$`Claim Amount`)
+
+# check the structure of the revised data frame
+str(fraudData)
+```
+
+This revised data frame looks much better!  I now have 11 variables to work with.  My next step is to do some exploratory analysis on the data.
+<br>
+<br>
+
+### Exploratory Analysis
+Here, I want to summerize the main characteristics of the data. I will start by looking at some summary statistics of the data. Looking at the dataset, I want to see the averages between fraud and not fraud among certain variables (e.g. age, claim amount, etc.).  Secondly, I want to see if there are certain groups that seem to be more prone to fraud than other groups (e.g. age groups, marital status, etc.). 
+```{r, echo = TRUE, collapse = TRUE, warning = FALSE, message = FALSE}
+
+# summary statistics 
+summary(fraudData)
+
+# split the dataset into two separate datasets: one which includes fraud and one which includes not fraud
+actualFraud <- fraudData[fraudData$`Fraud Instance` == 1,]
+notFraud <- fraudData[fraudData$`Fraud Instance` == 0,]
+
+# find the average age between fraud/not fraud 
+mean(actualFraud$`Age Group`) #mean is 36.45
+mean(notFraud$`Age Group`)   #mean is 36.4
+#it seems the average age is the same between fraud and not fraud
+
+# find the average claim amount between fraud/not fraud
+mean(actualFraud$`Claim Amount`) #mean is $195
+mean(notFraud$`Claim Amount`) #mean is $193
+#the average claim amount is fairly equal
+
+# compile a table showing relationship status vs fraud
+table(fraudData$`Marital Status`, fraudData$`Fraud Instance`)
+
+# compile a table showing accomodation type vs fraud
+table(fraudData$`Marital Status`, fraudData$`Fraud Instance`)
+
+# compile a table showing vehicle ownership vs fraud
+table(fraudData$`Owns a Vehicle`, fraudData$`Fraud Instance`)
+
+par(mfrow=c(2,3))
+hist(actualFraud$`Age Group`, col = "hot pink", xlab = 'Age', ylab = 'Frequency', main = 'Histogram of Age of Not Fraud')
+hist(notFraud$`Age Group`, col = "hot pink", xlab = 'Age', ylab = 'Frequency', main = 'Histogram of Age of Fraud')
+hist(fraudData$`Claim Amount`, col = "hot pink", xlab = 'Claim Amoung', ylab = 'Frequency', main = 'Histogram of Claim Amount')
+plot(fraudData$`Age Group` ~ fraudData$`Fraud Instance`, col = "hot pink", xlab = 'Fraud Instance', ylab = 'Age', main = 'Age vs Fraud Status')
+plot(fraudData$`Claim Amount` ~ fraudData$`Fraud Instance`, col = "hot pink", xlab = 'Fraud Instance', ylab = 'Claim Amount', main = 'Claim Amount vs Fraud Status')
+
+```
+<br>
+Based on the above analysis, I found a lot of interesting information in the data.  Note that statistical tests were not conducted; therefore, the below findings have not been tested for statistical significance.  I'll breakdown the findings below:
+
+  1. Of the 4,349 observations in the dataset, 39% were considered fraud.
+  2. The minimum claim amount was $35, while the highest amount was $355
+  3. The youngest age was 18 years old, while the oldest was 55 years old.
+  4. The average age of individuals' claims that were considered fraud was about 34 years old, as was the average age of individuals who's claims were not considered fraud (34 y/o).  Therefore, there does not seem to be a difference between fraud/not fraud and age.
+  5. The average claim amount of a fraud transaction was $195, while the average claim amount of a non-fraud transaction was $193.  Again, there does not seem to be a difference between fraud/not fraud and claim amount.
+  6. Looking at the table that categorizes marital status and fraud instance, it shows that there there doesn't seem to be any differences between fraud and not fraud and the three marital statuses: *In-Relationship*, *Married*, and *Unmarried*.
+  7. Looking at the table that categorizes vehicle ownership between fraud and not fraud, it shows that there doesn't seem to be a difference between fraud and not fraud and whether or not one owns a vehicle.
+  8. The histograms that show the average age of non-fraud cases, average age of fraud cases, and histogram of the claim amount all seem to have somewhat of a uniform distribution.
+  9. The boxplot of  age vs fraud status shows that the distribution of age is the same for fraud cases and non-fraud cases.
+  10. The boxplot of claim amount vs fraud status shows that the distribution of claim amount is the same for fraud cases and non-fraud cases.
+<br>
+<br>
+
+### Model Building
+Next, I want to build a model that will detect whether or not a transaction is fraud or not fraud. I want to build a decision tree, as there are only two predictive outcomes: fraud and not fraud. Secondly, a decision tree will be easy for the end-user to interpret.  Lastly, the decision tree will implicitly perform feature selection.  To build this model, I first want to train and test the data using cross-validation in a for-loop. With each iteration the for-loop will resample a train and test set and use that to predict and train the tree.  I will then see how accurate the trained model is.
+
+```{r, echo = TRUE, collapse = TRUE, warning = FALSE, message = FALSE}
+#train and test data using cross-validation
+set.seed(199)
+n <- nrow(fraudData)
+shuffled <- fraudData[sample(n),]
+accs <- rep(0,6)
+
+for(i in 1:6) {
+  # These indices indicate the interval of the test set
+  
+  indices <- (((i-1) * round((1/6)*nrow(shuffled))) + 1):((i*round((1/6) * nrow(shuffled))))
+
+  # Exclude the from the train set
+  train <- shuffled[-indices,]
+  
+  # Include them in the test set
+  test <- shuffled[indices,]
+  
+  # A model is learned using each training set
+  tree <- rpart(`Fraud Instance` ~ ., train, method = "class")
+  
+  # Make a prediction on the test set using tree
+  pred <- predict(tree, test, type = "class")
+  
+  # Assign the confusion matrix to conf
+  conf <- table(test$`Fraud Instance`, pred)
+  
+  # Assign the accuracy of this model to the ith index in accs
+  accs[i] <- sum(diag(conf))/sum(conf)
+  
+}
+
+mean(accs)
+conf
+```
+Looking at the average accuracy of the trained model, we can see that we have a 100% accuracy!  Looking at the confusion matrix, you can see that in fact, it is 100% accurate.  I'm very happy with this model and will call it my final model.
+<br>
+<br>
+
+### Final Model: Decision Tree
+Here's the final model that will detect whether or not a claim is considered fraud:
+```{r, echo = TRUE, collapse = TRUE, warning = FALSE, message = FALSE}
+# plot the tree
+fancyRpartPlot(tree)
+```
+<br>
+<br>
+
+### Conclusion
+This project walked through the steps on how to analyze data and build a model that will successfully predict whether or not a transaction is considered fraud or not fraud.  After cleaning the data, I was able to create a decision tree that was 100% accurate in predicting fraud.  
+
+Notice that the top nodes of the tree: *Item Not In Stock*, *Damaged Item*, and *Product Care Plan* are the most important variables in the dataset, as they are in the top of the tree.  By looking at the decision tree, it seems that one should be suspecious if one returns an item that is in stock, if there is not a product care plan, and if the item is not available.  If the item is in stock and the item is damaged, then you can feel confident that the transaction is not fraud.
+
+One should feel confident in implementing this decision tree to predict whether or not a transaction is fraud.
